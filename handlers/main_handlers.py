@@ -160,7 +160,7 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
         return handle_tasks_menu_text(user_id, api)
     
     elif '🗓️ Расписание' in text or text == 'Расписание':
-        from .shedule_handlers import handle_schedule_menu_text
+        from .schedule_handlers import handle_schedule_menu_text
         return handle_schedule_menu_text(user_id, api)
     
     elif '📊 Отчеты' in text or text == 'Отчеты':
@@ -196,15 +196,15 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
         return handle_send_notification_role_text(user_id, text, current_state, api)
     
     elif current_state == 'admin_schedule_input_date':
-        from .shedule_handlers import handle_schedule_date_input
+        from .schedule_handlers import handle_schedule_date_input
         return handle_schedule_date_input(user_id, text, api)
     
     elif current_state == 'admin_schedule_input_time':
-        from .shedule_handlers import handle_schedule_time_input
+        from .schedule_handlers import handle_schedule_time_input
         return handle_schedule_time_input(user_id, text, api)
     
     elif current_state == 'admin_schedule_input_details':
-        from .shedule_handlers import handle_schedule_details_input
+        from .schedule_handlers import handle_schedule_details_input
         return handle_schedule_details_input(user_id, text, api)
     
     # Для остальных сообщений - подсказка
