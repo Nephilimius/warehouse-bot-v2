@@ -7,16 +7,24 @@ handlers/callback_router.py
 """
 
 import logging
+import database as bd
 
 logger = logging.getLogger(__name__)
+
+
+def get_task_type_emoji(task_type):
+    """Возвращает эмодзи для типа задачи"""
+    return {
+        "Обеды": "🍽️",
+        "Уборка": "🧹", 
+        "Пересчеты": "🔢"
+    }.get(task_type, "📋")
 
 
 def handle_callback_query(user_id, callback_data, message_id, query_id, api):
     """Главный обработчик callback queries - ОТЛАДОЧНАЯ ВЕРСИЯ"""
     
     logger.info(f"🔘 ВХОД В handle_callback_query: user={user_id}, data='{callback_data}', msg_id={message_id}")
-    
-    # НЕ отвечаем на callback здесь - это делается в bot_modular.py
     
     from config import ADMINS
     is_admin = user_id in ADMINS
@@ -28,8 +36,7 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
         if callback_data == 'search':
             logger.info("🔍 Обработка callback: search")
             try:
-                from .main_handlers import set_user_state
-                set_user_state(user_id, 'search')
+                bd.set_user_state(user_id, 'search')
                 success, result = api.edit_message(
                     user_id,
                     message_id,
@@ -46,7 +53,6 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
             logger.info("👤 Обработка callback: profile")
             try:
                 from .main_handlers import get_or_create_user_sync
-                # Для callback используем edit_message
                 user = get_or_create_user_sync(user_id)
                 
                 if user:
@@ -77,8 +83,8 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
         elif callback_data == 'back_main':
             logger.info("🏠 Обработка callback: back_main")
             try:
-                from .main_handlers import set_user_state, get_main_menu_keyboard
-                set_user_state(user_id, 'main')
+                from .main_handlers import get_main_menu_keyboard
+                bd.set_user_state(user_id, 'main')
                 success, result = api.edit_message(
                     user_id,
                     message_id,
@@ -223,7 +229,6 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
         import traceback
         traceback.print_exc()
         
-        # В случае ошибки возвращаем простое сообщение
         try:
             success, result = api.edit_message(
                 user_id,
@@ -322,12 +327,3 @@ def handle_schedule_type_callback(user_id, message_id, callback_data, api):
     except Exception as e:
         logger.error(f"❌ Ошибка в handle_schedule_type_callback: {e}")
         return False, str(e)
-
-
-def get_task_type_emoji(task_type):
-    """Возвращает эмодзи для типа задачи"""
-    return {
-        "Обеды": "🍽️",
-        "Уборка": "🧹", 
-        "Пересчеты": "🔢"
-    }.get(task_type, "📋")
