@@ -24,12 +24,16 @@ def get_task_type_emoji(task_type):
 def handle_callback_query(user_id, callback_data, message_id, query_id, api):
     """Главный обработчик callback queries - ОТЛАДОЧНАЯ ВЕРСИЯ"""
     
-    logger.info(f"🔘 ВХОД В handle_callback_query: user={user_id}, data='{callback_data}', msg_id={message_id}")
+    logger.info(
+        f"🔘 ВХОД В handle_callback_query: user={user_id}, "
+        f"data='{callback_data}', msg_id={message_id}"
+    )
     
     from config import ADMINS
     is_admin = user_id in ADMINS
     
-    logger.info(f"🔘 Пользователь {user_id} {'АДМИН' if is_admin else 'НЕ АДМИН'}")
+    admin_status = 'АДМИН' if is_admin else 'НЕ АДМИН'
+    logger.info(f"🔘 Пользователь {user_id} {admin_status}")
     
     try:
         # Основные разделы
@@ -40,7 +44,8 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 success, result = api.edit_message(
                     user_id,
                     message_id,
-                    "🔍 *Поиск и аналитика пользователя*\n\nВведите username для поиска:",
+                    ("🔍 *Поиск и аналитика пользователя*\n\n"
+                     "Введите username для поиска:"),
                     parse_mode='Markdown'
                 )
                 logger.info(f"🔍 Результат edit_message: success={success}")
@@ -56,22 +61,36 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 user = get_or_create_user_sync(user_id)
                 
                 if user:
-                    admin_status = "\n👑 *Статус:* Администратор" if is_admin else ""
+                    admin_text = "\n👑 *Статус:* Администратор" if is_admin else ""
+                    
+                    username = user.get('username', 'Не указан')
+                    role = user.get('role', 'Не указана')
+                    tasks_count = user.get('tasks_count', 0)
+                    avg_rating = user.get('average_rating', 0)
+                    quality_score = user.get('quality_score', 0)
                     
                     message = f"""👤 *Ваш профиль*
 
-📱 *Username:* @{user.get('username', 'Не указан')}
-🎭 *Роль:* {user.get('role', 'Не указана')}{admin_status}
-📋 *Заданий выполнено:* {user.get('tasks_count', 0)}
-⭐ *Средний рейтинг:* {user.get('average_rating', 0):.1f}
-💎 *Качество работы:* {user.get('quality_score', 0):.1f}
+📱 *Username:* @{username}
+🎭 *Роль:* {role}{admin_text}
+📋 *Заданий выполнено:* {tasks_count}
+⭐ *Средний рейтинг:* {avg_rating:.1f}
+💎 *Качество работы:* {quality_score:.1f}
 🆔 *ID:* {user_id}"""
                 else:
-                    message = f"👤 *Профиль*\n\n❌ Ошибка получения данных\n🆔 *ID:* {user_id}"
+                    message = (f"👤 *Профиль*\n\n"
+                              f"❌ Ошибка получения данных\n"
+                              f"🆔 *ID:* {user_id}")
                 
                 success, result = api.edit_message(
-                    user_id, message_id, message,
-                    reply_markup={'inline_keyboard': [[{'text': '◀️ Назад', 'callback_data': 'back_main'}]]},
+                    user_id,
+                    message_id,
+                    message,
+                    reply_markup={
+                        'inline_keyboard': [[
+                            {'text': '◀️ Назад', 'callback_data': 'back_main'}
+                        ]]
+                    },
                     parse_mode='Markdown'
                 )
                 logger.info(f"👤 Результат edit_message: success={success}")
@@ -88,7 +107,8 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 success, result = api.edit_message(
                     user_id,
                     message_id,
-                    "🏠 *Главное меню*\n\nИспользуйте кнопки внизу для навигации.",
+                    ("🏠 *Главное меню*\n\n"
+                     "Используйте кнопки внизу для навигации."),
                     reply_markup=get_main_menu_keyboard(is_admin),
                     parse_mode='Markdown'
                 )
@@ -205,7 +225,9 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 return False, str(e)
         
         elif callback_data.startswith('admin') and not is_admin:
-            logger.warning(f"🚫 Неавторизованная попытка доступа к админке от {user_id}")
+            logger.warning(
+                f"🚫 Неавторизованная попытка доступа к админке от {user_id}"
+            )
             success, result = api.edit_message(
                 user_id,
                 message_id,
@@ -220,7 +242,11 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 user_id,
                 message_id,
                 f"❓ Функция `{callback_data}` в разработке",
-                reply_markup={'inline_keyboard': [[{'text': '◀️ Назад', 'callback_data': 'back_main'}]]}
+                reply_markup={
+                    'inline_keyboard': [[
+                        {'text': '◀️ Назад', 'callback_data': 'back_main'}
+                    ]]
+                }
             )
             return success, result
         
@@ -234,10 +260,14 @@ def handle_callback_query(user_id, callback_data, message_id, query_id, api):
                 user_id,
                 message_id,
                 "❌ Произошла ошибка, попробуйте еще раз",
-                reply_markup={'inline_keyboard': [[{'text': '🏠 Главное меню', 'callback_data': 'back_main'}]]}
+                reply_markup={
+                    'inline_keyboard': [[
+                        {'text': '🏠 Главное меню', 'callback_data': 'back_main'}
+                    ]]
+                }
             )
             return success, result
-        except:
+        except Exception:
             return False, "Critical error in callback handler"
 
 
@@ -250,8 +280,14 @@ def handle_my_tasks_callback(user_id, message_id, api):
         success, result = api.edit_message(
             user_id,
             message_id,
-            "📝 *Ваши задания*\n\n❌ Функция в разработке\n\n_Подключение к базе данных..._",
-            reply_markup={'inline_keyboard': [[{'text': '◀️ К заданиям', 'callback_data': 'tasks'}]]},
+            ("📝 *Ваши задания*\n\n"
+             "❌ Функция в разработке\n\n"
+             "_Подключение к базе данных..._"),
+            reply_markup={
+                'inline_keyboard': [[
+                    {'text': '◀️ К заданиям', 'callback_data': 'tasks'}
+                ]]
+            },
             parse_mode='Markdown'
         )
         logger.info(f"📝 Результат: success={success}")
@@ -263,15 +299,27 @@ def handle_my_tasks_callback(user_id, message_id, api):
 
 def handle_pending_tasks_callback(user_id, message_id, api, is_admin):
     """Обработка просмотра ожидающих задач"""
-    logger.info(f"⏳ handle_pending_tasks_callback для {user_id}, админ: {is_admin}")
+    logger.info(
+        f"⏳ handle_pending_tasks_callback для {user_id}, админ: {is_admin}"
+    )
     
     try:
-        title = "⏳ *Все ожидающие задания*" if is_admin else "⏳ *Ваши ожидающие задания*"
+        if is_admin:
+            title = "⏳ *Все ожидающие задания*"
+        else:
+            title = "⏳ *Ваши ожидающие задания*"
+            
         success, result = api.edit_message(
             user_id,
             message_id,
-            f"{title}\n\n❌ Функция в разработке\n\n_Подключение к базе данных..._",
-            reply_markup={'inline_keyboard': [[{'text': '◀️ К заданиям', 'callback_data': 'tasks'}]]},
+            (f"{title}\n\n"
+             f"❌ Функция в разработке\n\n"
+             f"_Подключение к базе данных..._"),
+            reply_markup={
+                'inline_keyboard': [[
+                    {'text': '◀️ К заданиям', 'callback_data': 'tasks'}
+                ]]
+            },
             parse_mode='Markdown'
         )
         logger.info(f"⏳ Результат: success={success}")
@@ -283,15 +331,27 @@ def handle_pending_tasks_callback(user_id, message_id, api, is_admin):
 
 def handle_completed_tasks_callback(user_id, message_id, api, is_admin):
     """Обработка просмотра выполненных задач"""
-    logger.info(f"✅ handle_completed_tasks_callback для {user_id}, админ: {is_admin}")
+    logger.info(
+        f"✅ handle_completed_tasks_callback для {user_id}, админ: {is_admin}"
+    )
     
     try:
-        title = "✅ *Все выполненные задания*" if is_admin else "✅ *Ваши выполненные задания*"
+        if is_admin:
+            title = "✅ *Все выполненные задания*"
+        else:
+            title = "✅ *Ваши выполненные задания*"
+            
         success, result = api.edit_message(
             user_id,
             message_id,
-            f"{title}\n\n❌ Функция в разработке\n\n_Подключение к базе данных..._",
-            reply_markup={'inline_keyboard': [[{'text': '◀️ К заданиям', 'callback_data': 'tasks'}]]},
+            (f"{title}\n\n"
+             f"❌ Функция в разработке\n\n"
+             f"_Подключение к базе данных..._"),
+            reply_markup={
+                'inline_keyboard': [[
+                    {'text': '◀️ К заданиям', 'callback_data': 'tasks'}
+                ]]
+            },
             parse_mode='Markdown'
         )
         logger.info(f"✅ Результат: success={success}")
@@ -318,8 +378,14 @@ def handle_schedule_type_callback(user_id, message_id, callback_data, api):
         success, result = api.edit_message(
             user_id,
             message_id,
-            f"{type_emoji} *{schedule_type}*\n\n❌ Функция в разработке\n\n_Подключение к базе данных..._",
-            reply_markup={'inline_keyboard': [[{'text': '◀️ К расписанию', 'callback_data': 'schedule'}]]},
+            (f"{type_emoji} *{schedule_type}*\n\n"
+             f"❌ Функция в разработке\n\n"
+             f"_Подключение к базе данных..._"),
+            reply_markup={
+                'inline_keyboard': [[
+                    {'text': '◀️ К расписанию', 'callback_data': 'schedule'}
+                ]]
+            },
             parse_mode='Markdown'
         )
         logger.info(f"🗓️ Результат: success={success}")

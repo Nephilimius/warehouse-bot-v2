@@ -1,3 +1,10 @@
+"""
+ydb_init.py - Скрипт инициализации базы данных YDB
+
+Создает все необходимые таблицы, индексы и добавляет тестовые данные
+для работы Telegram бота управления складом.
+"""
+
 import uuid
 from datetime import datetime, timedelta
 import ydb
@@ -21,10 +28,21 @@ if not os.path.exists(YDB_KEY_FILE):
 
 
 def get_ydb_connection():
-    """Получить подключение к YDB."""
+    """
+    Получить подключение к YDB
+    
+    Returns:
+        tuple: (pool, driver) или (None, None) при ошибке
+    """
     try:
-        credentials = ydb.iam.ServiceAccountCredentials.from_file(YDB_KEY_FILE)
-        driver = ydb.Driver(endpoint=YDB_ENDPOINT, database=YDB_DATABASE, credentials=credentials)
+        credentials = ydb.iam.ServiceAccountCredentials.from_file(
+            YDB_KEY_FILE
+        )
+        driver = ydb.Driver(
+            endpoint=YDB_ENDPOINT, 
+            database=YDB_DATABASE, 
+            credentials=credentials
+        )
         driver.wait(timeout=30)
         pool = ydb.SessionPool(driver)
         return pool, driver
@@ -34,7 +52,15 @@ def get_ydb_connection():
 
 
 def create_tables(pool):
-    """Создать все необходимые таблицы."""
+    """
+    Создать все необходимые таблицы в базе данных
+    
+    Args:
+        pool: Пул соединений YDB
+        
+    Returns:
+        bool: True если успешно
+    """
     
     def execute(session):
         try:
@@ -157,11 +183,18 @@ def create_tables(pool):
             # Выполняем создание таблиц
             for i, query in enumerate(tables_queries):
                 try:
-                    session.transaction().execute(query, commit_tx=True)
-                    print(f"✅ Таблица {i+1}/{len(tables_queries)} создана успешно")
+                    session.transaction().execute(
+                        query, 
+                        commit_tx=True
+                    )
+                    table_num = i + 1
+                    total_tables = len(tables_queries)
+                    print(f"✅ Таблица {table_num}/{total_tables} создана успешно")
                 except Exception as e:
                     if "already exists" in str(e):
-                        print(f"⚠️  Таблица {i+1}/{len(tables_queries)} уже существует")
+                        table_num = i + 1
+                        total_tables = len(tables_queries)
+                        print(f"⚠️  Таблица {table_num}/{total_tables} уже существует")
                     else:
                         print(f"❌ Ошибка создания таблицы {i+1}: {e}")
             
@@ -178,7 +211,15 @@ def create_tables(pool):
 
 
 def create_indexes(pool):
-    """Создать индексы для оптимизации."""
+    """
+    Создать индексы для оптимизации запросов
+    
+    Args:
+        pool: Пул соединений YDB
+        
+    Returns:
+        bool: True если успешно
+    """
     
     def execute(session):
         try:
@@ -194,11 +235,15 @@ def create_indexes(pool):
             
             for i, index_query in enumerate(indexes):
                 try:
-                    session.transaction().execute(index_query, commit_tx=True)
+                    session.transaction().execute(
+                        index_query, 
+                        commit_tx=True
+                    )
                     print(f"✅ Индекс {i+1}/{len(indexes)} создан")
                 except Exception as e:
                     if "already exists" in str(e):
-                        print(f"⚠️  Индекс {i+1}/{len(indexes)} уже существует")
+                        index_num = i + 1
+                        print(f"⚠️  Индекс {index_num}/{len(indexes)} уже существует")
                     else:
                         print(f"❌ Ошибка создания индекса {i+1}: {e}")
             
@@ -215,18 +260,32 @@ def create_indexes(pool):
 
 
 def insert_test_data(pool):
-    """Вставить тестовые данные."""
+    """
+    Вставить тестовые данные в базу
+    
+    Args:
+        pool: Пул соединений YDB
+        
+    Returns:
+        bool: True если успешно
+    """
     
     def execute(session):
         try:
             # Добавляем типы задач
             task_types = [
-                ("meal_1", "Обед 1 смена", "Обеды", 60, False, "Обеспечение обеда для первой смены"),
-                ("meal_2", "Обед 2 смена", "Обеды", 60, False, "Обеспечение обеда для второй смены"),
-                ("cleaning_floors", "Уборка полов", "Уборка", 45, True, "Влажная уборка всех полов в здании"),
-                ("cleaning_tables", "Уборка столов", "Уборка", 30, True, "Уборка и дезинфекция рабочих столов"),
-                ("cleaning_bathrooms", "Уборка санузлов", "Уборка", 40, True, "Уборка и дезинфекция санузлов"),
-                ("recount", "Пересчет", "Пересчеты", 0, False, "Пересчет товара и материалов в течение дня"),
+                ("meal_1", "Обед 1 смена", "Обеды", 60, False, 
+                 "Обеспечение обеда для первой смены"),
+                ("meal_2", "Обед 2 смена", "Обеды", 60, False, 
+                 "Обеспечение обеда для второй смены"),
+                ("cleaning_floors", "Уборка полов", "Уборка", 45, True, 
+                 "Влажная уборка всех полов в здании"),
+                ("cleaning_tables", "Уборка столов", "Уборка", 30, True, 
+                 "Уборка и дезинфекция рабочих столов"),
+                ("cleaning_bathrooms", "Уборка санузлов", "Уборка", 40, True, 
+                 "Уборка и дезинфекция санузлов"),
+                ("recount", "Пересчет", "Пересчеты", 0, False, 
+                 "Пересчет товара и материалов в течение дня"),
             ]
             
             for task_type in task_types:
@@ -240,7 +299,9 @@ def insert_test_data(pool):
                     task_type[3], task_type[4], task_type[5]
                 )
                 
-                session.transaction().execute(insert_query, commit_tx=True)
+                session.transaction().execute(
+                    insert_query, commit_tx=True
+                )
             
             print("✅ Тестовые типы задач добавлены")
             
@@ -261,7 +322,9 @@ def insert_test_data(pool):
                     VALUES ("{}", "{}", "{}", {}, {}, {}, {})
                 """.format(user[0], user[1], user[2], 0, 0.0, 0.0, True)
                 
-                session.transaction().execute(insert_query, commit_tx=True)
+                session.transaction().execute(
+                    insert_query, commit_tx=True
+                )
                 
                 # Добавляем настройки уведомлений для каждого пользователя
                 notif_settings_query = """
@@ -271,7 +334,9 @@ def insert_test_data(pool):
                     VALUES ("{}", {}, {}, {}, {})
                 """.format(user[0], True, True, True, True)
                 
-                session.transaction().execute(notif_settings_query, commit_tx=True)
+                session.transaction().execute(
+                    notif_settings_query, commit_tx=True
+                )
             
             print("✅ Тестовые пользователи добавлены")
             
@@ -297,7 +362,9 @@ def insert_test_data(pool):
                     schedule[2], schedule[3], schedule[4], "123456789"
                 )
                 
-                session.transaction().execute(insert_query, commit_tx=True)
+                session.transaction().execute(
+                    insert_query, commit_tx=True
+                )
             
             print("✅ Тестовое расписание добавлено")
             
@@ -314,7 +381,7 @@ def insert_test_data(pool):
 
 
 def main():
-    """Главная функция инициализации."""
+    """Главная функция инициализации базы данных"""
     print("🚀 Начинаем инициализацию базы данных YDB...")
     print(f"🔗 Подключение: {YDB_ENDPOINT}")
     print(f"💾 База данных: {YDB_DATABASE}")
@@ -351,11 +418,19 @@ def main():
         
         print("\n🎉 Инициализация базы данных завершена!")
         print("\n📝 Тестовые пользователи:")
-        print("- director (telegram_id: 123456789) - ДС")
+        test_users_info = [
+            "- director (telegram_id: 123456789) - ДС",
         print("- assistant_director (telegram_id: 987654321) - ЗДС")
         print("- warehouse_worker1 (telegram_id: 111111111) - Кладовщик")
         print("- warehouse_worker2 (telegram_id: 222222222) - Кладовщик")
         print("- warehouse_worker3 (telegram_id: 333333333) - Кладовщик")
+            "- warehouse_worker1 (telegram_id: 111111111) - Кладовщик",
+            "- warehouse_worker2 (telegram_id: 222222222) - Кладовщик",
+            "- warehouse_worker3 (telegram_id: 333333333) - Кладовщик"
+        ]
+        
+        for user_info in test_users_info:
+            print(user_info)
         
     except Exception as e:
         print(f"❌ Ошибка инициализации: {e}")

@@ -1,3 +1,10 @@
+"""
+index.py - Главный обработчик для Yandex Cloud Functions
+
+Обрабатывает входящие webhook'и от Telegram и маршрутизирует их
+к соответствующим обработчикам команд и callback'ов.
+"""
+
 import json
 import logging
 import os
@@ -10,9 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def handler(event, context):
-    """
-    Главный обработчик для Yandex Cloud Functions
-    """
+    """Главный обработчик для Yandex Cloud Functions"""
     print("🚀 ФУНКЦИЯ ЗАПУЩЕНА!")
     print(f"📥 Raw event: {event}")
     
@@ -23,7 +28,9 @@ def handler(event, context):
         
         if not token:
             print("❌ TOKEN НЕ НАЙДЕН!")
-            logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения")
+            logger.error(
+                "❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения"
+            )
             return {
                 'statusCode': 500,
                 'body': json.dumps({'error': 'Token not found'})
@@ -43,6 +50,7 @@ def handler(event, context):
             else:
                 print("📄 Body - уже объект...")
                 update_data = event.get('body', {})
+                
         except json.JSONDecodeError as e:
             print(f"❌ Ошибка парсинга JSON: {e}")
             logger.error(f"❌ Ошибка парсинга JSON: {e}")
@@ -66,7 +74,9 @@ def handler(event, context):
             logger.info(f"💬 MESSAGE от @{username}: {text[:30]}")
             
             print("🔄 Вызываем handle_text_message...")
-            success, result = handle_text_message(user_id, username, text, telegram_api)
+            success, result = handle_text_message(
+                user_id, username, text, telegram_api
+            )
             print(f"🔄 handle_text_message результат: success={success}, result={result}")
             
             if success:
@@ -101,7 +111,10 @@ def handler(event, context):
             success, result = handle_callback_query(
                 user_id, callback_data, message_id, query_id, telegram_api
             )
-            print(f"🔄 handle_callback_query результат: success={success}, result={result}")
+            print(
+                f"🔄 handle_callback_query результат: "
+                f"success={success}, result={result}"
+            )
             
             if success:
                 print("✅ CALLBACK успешно обработан!")
@@ -119,8 +132,9 @@ def handler(event, context):
                 }
         
         else:
-            print(f"❓ Неизвестный тип update: {list(update_data.keys())}")
-            logger.warning(f"❓ Неизвестный тип update: {list(update_data.keys())}")
+            update_keys = list(update_data.keys())
+            print(f"❓ Неизвестный тип update: {update_keys}")
+            logger.warning(f"❓ Неизвестный тип update: {update_keys}")
             return {
                 'statusCode': 400,
                 'body': json.dumps({'error': 'Unknown update type'})
@@ -133,5 +147,8 @@ def handler(event, context):
         traceback.print_exc()
         return {
             'statusCode': 500,
-            'body': json.dumps({'error': 'Critical error', 'details': str(e)})
+            'body': json.dumps({
+                'error': 'Critical error', 
+                'details': str(e)
+            })
         }

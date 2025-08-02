@@ -28,10 +28,12 @@ def handle_start_command(user_id, username, first_name, api: TelegramAPI):
     role = user.get('role', 'Кладовщик') if user else 'Кладовщик'
     is_admin = db.is_admin(user_id)
     
+    admin_text = '👑 У вас есть права администратора!' if is_admin else ''
+    
     welcome_text = f"""🤖 *Добро пожаловать, {first_name}!*
 
 *Ваша роль:* {role}
-{'👑 У вас есть права администратора!' if is_admin else ''}
+{admin_text}
 
 Выберите раздел из меню ниже:"""
     
@@ -71,8 +73,13 @@ def handle_search_text(user_id, text, api: TelegramAPI):
     found_user = None
     
     for user in users:
-        if user.get('username', '').lower() == username.lower():
+        logger.info(f"Поиск: ищу '{username}'")
+        user_username = user.get('username', '')
+        logger.info(f"Проверяю: '{user_username}' vs '{username}'")
+        
+        if user_username.lower() == username.lower():
             found_user = user
+            logger.info(f"Найден пользователь: {found_user}")
             break
     
     if found_user:
@@ -80,23 +87,22 @@ def handle_search_text(user_id, text, api: TelegramAPI):
         
         role_emoji = get_role_emoji(found_user['role'])
         
-        message = f"""🔍 *Результат поиска*
+        username_display = found_user['username']
+        role_display = found_user['role']
+        tasks_count = found_user.get('tasks_count', 0)
+        avg_rating = found_user.get('average_rating', 0)
+        telegram_id = found_user['telegram_id']
         
-        logger.info(f"Поиск: ищу '{username}'")
-        for user in users:
-            logger.info(f"Проверяю: '{user.get('username', '')}' vs '{username}'")
-            if user.get('username', '').lower() == username.lower():
-                found_user = user
-                logger.info(f"Найден пользователь: {found_user}")
-                break
+        message = f"""🔍 *Результат поиска*
 
-👤 *@{found_user['username']}*
+👤 *@{username_display}*
 {role_emoji} Роль: {found_user['role']}
-📋 Всего задач: {found_user.get('tasks_count', 0)}
-⭐ Средний рейтинг: {found_user.get('average_rating', 0):.1f}
-🆔 ID: {found_user['telegram_id']}"""
+📋 Всего задач: {tasks_count}
+⭐ Средний рейтинг: {avg_rating:.1f}
+🆔 ID: {telegram_id}"""
     else:
-        message = f"🔍 *Результат поиска*\n\n❌ Пользователь `@{username}` не найден"
+        message = (f"🔍 *Результат поиска*\n\n"
+                  f"❌ Пользователь `@{username}` не найден")
     
     is_admin = db.is_admin(user_id)
     return api.send_message(
@@ -116,13 +122,19 @@ def handle_profile_text(user_id, api: TelegramAPI):
         is_admin = db.is_admin(user_id)
         admin_status = "\n👑 *Статус:* Администратор" if is_admin else ""
         
+        username_display = user.get('username', 'Не указан')
+        role_display = user.get('role', 'Не указана')
+        tasks_count = user.get('tasks_count', 0)
+        avg_rating = user.get('average_rating', 0)
+        quality_score = user.get('quality_score', 0)
+        
         message = f"""👤 *Ваш профиль*
 
-📱 *Username:* @{user.get('username', 'Не указан')}
-🎭 *Роль:* {user.get('role', 'Не указана')}{admin_status}
-📋 *Заданий выполнено:* {user.get('tasks_count', 0)}
-⭐ *Средний рейтинг:* {user.get('average_rating', 0):.1f}
-💎 *Качество работы:* {user.get('quality_score', 0):.1f}
+📱 *Username:* @{username_display}
+🎭 *Роль:* {role_display}{admin_status}
+📋 *Заданий выполнено:* {tasks_count}
+⭐ *Средний рейтинг:* {avg_rating:.1f}
+💎 *Качество работы:* {quality_score:.1f}
 🆔 *ID:* {user_id}"""
     else:
         message = f"""👤 *Профиль*
@@ -145,7 +157,8 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
     
     # Команды
     if text == "/start":
-        return handle_start_command(user_id, username, "Пользователь", api)
+        first_name = "Пользователь"  # Можно получить из update
+        return handle_start_command(user_id, username, first_name, api)
     
     elif text == "/cancel":
         return handle_cancel_command(user_id, api)
@@ -155,9 +168,8 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
         user_states[user_id] = 'search'
         return api.send_message(
             user_id,
-            """🔍 *Поиск и аналитика пользователя*
-
-Введите username для поиска:""",
+            ("🔍 *Поиск и аналитика пользователя*\n\n"
+             "Введите username для поиска:"),
             parse_mode='Markdown'
         )
     
@@ -216,7 +228,7 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
     # Для остальных сообщений - подсказка
     return api.send_message(
         user_id,
-        """Используйте кнопки меню ниже или команды:
-/start - Главное меню
-/cancel - Отменить операцию"""
+        ("Используйте кнопки меню ниже или команды:\n"
+         "/start - Главное меню\n"
+         "/cancel - Отменить операцию")
     )
