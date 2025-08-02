@@ -1,36 +1,61 @@
-# config.py - Конфигурация и константы бота
+# config.py - Универсальная конфигурация для локальной разработки и Yandex Cloud Functions
 
 import os
-from dotenv import load_dotenv
 
-# Загружаем переменные окружения
-load_dotenv()
+# Определяем среду выполнения
+IS_CLOUD_FUNCTIONS = bool(os.environ.get('_HANDLER'))  # В Cloud Functions всегда есть _HANDLER
 
-# Токен бота
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+if not IS_CLOUD_FUNCTIONS:
+    # Локальная разработка - пытаемся загрузить .env
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        print("✅ Локальная разработка: .env файл загружен")
+    except ImportError:
+        print("⚠️  python-dotenv не найден, используем системные переменные")
+    except Exception as e:
+        print(f"⚠️  Ошибка загрузки .env: {e}")
+else:
+    print("✅ Cloud Functions: используем переменные окружения")
+
+# Токен бота (из переменных окружения)
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN') or os.environ.get('TELEGRAM_BOT')
 if not TOKEN:
-    raise ValueError("❌ TELEGRAM_BOT_TOKEN не найден в .env файле!")
+    available_vars = [k for k in os.environ.keys() if 'BOT' in k or 'TELEGRAM' in k]
+    print(f"❌ Токен не найден. Доступные переменные с BOT/TELEGRAM: {available_vars}")
+    raise ValueError("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
 
 # Настройки YDB
-YDB_ENDPOINT = os.getenv('YDB_ENDPOINT')
-YDB_DATABASE = os.getenv('YDB_DATABASE')
-YDB_KEY_FILE = os.getenv('YDB_KEY_FILE', 'ydb_key.json')
+YDB_ENDPOINT = os.environ.get('YDB_ENDPOINT') or os.environ.get('YDB_ENDPOIN')  # На случай опечатки
+YDB_DATABASE = os.environ.get('YDB_DATABASE') or os.environ.get('YDB_DATABAS')  # На случай опечатки
+YDB_SERVICE_ACCOUNT_KEY = os.environ.get('YDB_SERVICE_ACCOUNT_KEY')  # JSON как строка для Cloud Functions
+YDB_KEY_FILE = os.environ.get('YDB_KEY_FILE')  # Путь к файлу для локальной разработки
 
+# Проверяем YDB настройки
 if not YDB_ENDPOINT or not YDB_DATABASE:
-    raise ValueError("❌ YDB настройки не найдены в .env файле!")
+    available_ydb_vars = [k for k in os.environ.keys() if 'YDB' in k]
+    print(f"⚠️  YDB переменные: {available_ydb_vars}")
+    if IS_CLOUD_FUNCTIONS:
+        print("❌ В Cloud Functions YDB настройки обязательны!")
+        raise ValueError("❌ YDB настройки не найдены в переменных окружения!")
+    else:
+        print("⚠️  YDB не настроена - некоторые функции будут недоступны")
 
-# Webhook настройки
-WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', 8080))
+# Администраторы
+admin_users_str = os.environ.get('ADMIN_USERS', '398232017,1014841100')
+try:
+    ADMINS = [int(user_id.strip()) for user_id in admin_users_str.split(',') if user_id.strip()]
+    print(f"✅ Админы: {len(ADMINS)} пользователей")
+except Exception as e:
+    print(f"⚠️  Ошибка парсинга ADMIN_USERS: {e}")
+    ADMINS = [398232017, 1014841100]  # Fallback
 
-# Список администраторов (загружаем из .env)
-admin_users_str = os.getenv('ADMIN_USERS', '398232017,1014841100')
-ADMINS = [int(user_id.strip()) for user_id in admin_users_str.split(',') if user_id.strip()]
+# Отладочная информация
+print(f"🔧 Режим: {'Cloud Functions' if IS_CLOUD_FUNCTIONS else 'Локальная разработка'}")
+print(f"🔑 Токен: {'✅ Найден' if TOKEN else '❌ Не найден'}")
+print(f"🗄️  YDB: {'✅ Настроена' if YDB_ENDPOINT and YDB_DATABASE else '❌ Не настроена'}")
 
-# Режим отладки
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
-
-# States для ConversationHandler
+# States для ConversationHandler (остается без изменений)
 SEARCH, TASKS_MENU, SCHEDULE_MENU, REPORTS_MENU, NOTIF_MENU, PROFILE = range(6)
 ADMIN_MENU, CHANGE_ROLE, DELETE_USER = range(7, 10)
 USER_SEARCH = 11
@@ -43,7 +68,7 @@ EDIT_SCHEDULE_SELECT, EDIT_SCHEDULE_FIELD, EDIT_SCHEDULE_VALUE = range(21, 24)
 # Состояния для создания заданий
 CREATE_TASK_TYPE, CREATE_TASK_USER, CREATE_TASK_TIME, CREATE_TASK_DESC, CREATE_TASK_SHELVES = range(50, 55)
 
-# Новые состояния для управления расписанием с текстовым вводом
+# Новые состояния для управления расписанием
 SCHEDULE_SELECT_TYPE, SCHEDULE_SELECT_USER, SCHEDULE_INPUT_DATE, SCHEDULE_INPUT_TIME, SCHEDULE_INPUT_DETAILS, SCHEDULE_CONFIRM = range(100, 106)
 
 # Временные слоты для задач
@@ -75,36 +100,3 @@ TASK_STATUS = {
     "В работе": "🔄", 
     "Выполнено": "✅"
 }
-
-# Валидация конфигурации
-def validate_config():
-    """Проверяет корректность конфигурации"""
-    errors = []
-    
-    if not TOKEN:
-        errors.append("❌ TELEGRAM_BOT_TOKEN не установлен")
-    
-    if not YDB_ENDPOINT:
-        errors.append("❌ YDB_ENDPOINT не установлен")
-        
-    if not YDB_DATABASE:
-        errors.append("❌ YDB_DATABASE не установлен")
-        
-    if not os.path.exists(YDB_KEY_FILE):
-        errors.append(f"❌ Файл {YDB_KEY_FILE} не найден")
-    
-    if not ADMINS:
-        errors.append("❌ ADMIN_USERS не настроены")
-    
-    if errors:
-        print("\n".join(errors))
-        raise ValueError("Ошибки в конфигурации!")
-    
-    print("✅ Конфигурация валидна")
-    print(f"🤖 Бот: {TOKEN[:10]}...")
-    print(f"💾 База: {YDB_DATABASE}")
-    print(f"👑 Админы: {len(ADMINS)} пользователей")
-    print(f"🌍 Среда: {ENVIRONMENT}")
-
-if __name__ == "__main__":
-    validate_config()

@@ -3,27 +3,68 @@
 import uuid
 import ydb
 import ydb.iam
+import json
+import logging
 from datetime import datetime
-from config import YDB_ENDPOINT, YDB_DATABASE, YDB_KEY_FILE, ADMINS
+from config import YDB_ENDPOINT, YDB_DATABASE, ADMINS
+
+logger = logging.getLogger(__name__)
+
+pool = None
+driver = None
+
+def _get_driver():
+    """
+    Создает и возвращает YDB driver.
+    Инициализация происходит только один раз на "инстанс" функции.
+    """
+    global driver
+    logger.info(f"_get_driver called, current driver: {driver is not None}")
+    if driver is None:
+        try:
+            logger.info("🚀 Инициализация YDB драйвера...")
+            
+            # Самый надежный способ аутентификации внутри Yandex Cloud.
+            # Использует сервисный аккаунт, привязанный к функции.
+            credentials = ydb.iam.MetadataUrlCredentials()
+            
+            driver_config = ydb.DriverConfig(
+                endpoint=YDB_ENDPOINT,
+                database=YDB_DATABASE,
+                credentials=credentials,
+                root_certificates=ydb.load_ydb_root_certificate()
+            )
+            driver = ydb.Driver(driver_config)
+            driver.wait(timeout=5, fail_fast=True)
+            logger.info("✅ YDB Драйвер успешно инициализирован.")
+        except Exception as e:
+            logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА инициализации YDB: {e}")
+            driver = None
+    return driver
+
+def get_pool():
+    """
+    Возвращает пул сессий. Создает его, если он не существует.
+    """
+    global pool
+    if pool is None:
+        ydb_driver = _get_driver()
+        if ydb_driver:
+            logger.info("🏊‍♂️ Создание пула сессий YDB...")
+            pool = ydb.SessionPool(ydb_driver, size=5)
+            logger.info("✅ Пул сессий создан.")
+        else:
+            logger.error("❌ Не удалось создать пул сессий, так как драйвер не инициализирован.")
+            pool = None
+    return pool
+
+# Вызываем инициализацию при первой загрузке модуля
+get_pool()
 
 def get_ydb_timestamp():
     """Получить timestamp в формате, совместимом с YDB."""
     from datetime import datetime
     return datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z'
-
-# Инициализация YDB
-try:
-    credentials = ydb.iam.ServiceAccountCredentials.from_file(YDB_KEY_FILE)
-    driver = ydb.Driver(endpoint=YDB_ENDPOINT, database=YDB_DATABASE, credentials=credentials)
-    driver.wait(timeout=60)
-    pool = ydb.SessionPool(driver, size=3)
-    print("✅ YDB подключена успешно!")
-except Exception as e:
-    print(f"❌ Ошибка подключения к YDB: {e}")
-    import traceback
-    traceback.print_exc()
-    exit(1)
-
 
 def safe_decode(value):
     """Безопасное декодирование значений из YDB."""
@@ -56,82 +97,75 @@ def safe_decode(value):
         return str_value
 
 
-async def is_admin(user_id):
+def is_admin(user_id):
     """Проверить, является ли пользователь администратором."""
     return user_id in ADMINS
 
 
-async def get_or_create_user(telegram_id: int, username: str = None):
-    """Получить или создать пользователя."""
-    def execute(session):
-        try:
-            query = """
-                SELECT telegram_id, username, role, tasks_count, 
-                       average_rating, quality_score, notifications_enabled
-                FROM Users 
-                WHERE telegram_id = "{}"
-            """.format(str(telegram_id))
-            
-            result = session.transaction().execute(query, commit_tx=True)
-            
-            if result[0].rows:
-                row = result[0].rows[0]
-                return {
-                    'telegram_id': safe_decode(row[0]),  # telegram_id
-                    'username': safe_decode(row[1]),     # username  
-                    'role': safe_decode(row[2]),         # role
-                    'tasks_count': int(row[3]) if row[3] else 0,        # tasks_count
-                    'average_rating': float(row[4]) if row[4] else 0.0, # average_rating
-                    'quality_score': float(row[5]) if row[5] else 0.0,  # quality_score
-                    'notifications_enabled': bool(row[6]) if row[6] is not None else True # notifications_enabled
-                }
-            else:
-                # Создаем нового пользователя
-                insert_query = """
-                    UPSERT INTO Users 
-                    (telegram_id, username, role, tasks_count, 
-                     average_rating, quality_score, notifications_enabled)
-                    VALUES ("{}", "{}", "{}", {}, {}, {}, {})
-                """.format(
-                    str(telegram_id),
-                    username or "Unknown",
-                    "Кладовщик",
-                    0, 0.0, 0.0, True
-                )
-                
-                session.transaction().execute(insert_query, commit_tx=True)
-                
-                # Создаем настройки уведомлений по умолчанию
-                notif_settings_query = """
-                    UPSERT INTO NotificationSettings 
-                    (user_id, general_notifications, task_reminders, 
-                     schedule_updates, rating_notifications)
-                    VALUES ("{}", {}, {}, {}, {})
-                """.format(str(telegram_id), True, True, True, True)
-                
-                session.transaction().execute(notif_settings_query, commit_tx=True)
-                
-                return {
-                    'telegram_id': str(telegram_id),
-                    'username': username or "Unknown",
-                    'role': "Кладовщик",
-                    'tasks_count': 0,
-                    'average_rating': 0.0,
-                    'quality_score': 0.0,
-                    'notifications_enabled': True
-                }
-        except Exception as e:
-            print(f"Ошибка в execute: {e}")
-            return None
+def get_or_create_user(telegram_id: int, username: str = None, first_name: str = "User"):
+    """Получает или создает пользователя в базе данных."""
     
+    if not pool: 
+        logger.error("❌ get_or_create_user: Пул не инициализирован.")
+        logger.error(f"Driver status: {driver is not None}")
+        return None
+
+    def execute(session):
+        query_text = f"DECLARE $user_id AS Utf8; SELECT * FROM Users WHERE telegram_id = $user_id;"
+        prepared_query = session.prepare(query_text)
+        
+        result = session.transaction(ydb.SerializableReadWrite()).execute(
+            prepared_query, {'$user_id': str(telegram_id)}, commit_tx=True
+        )
+        
+        if result and result[0].rows:
+            user_data = result[0].rows[0]
+            logger.info(f"👤 Пользователь найден: {telegram_id}")
+            columns = ['telegram_id', 'username', 'first_name', 'role', 'tasks_count', 
+          'average_rating', 'quality_score', 'notifications_enabled', 'state', 'state_data']
+            columns = ['telegram_id', 'username', 'first_name', 'role', 'tasks_count', 
+          'average_rating', 'quality_score', 'notifications_enabled', 'state', 'state_data']
+            
+            user_dict = {}
+            for i, column in enumerate(columns):
+                if i < len(user_data):
+                    value = user_data[i]
+                    if isinstance(value, bytes):
+                        user_dict[column] = value.decode('utf-8')
+                    else:
+                        user_dict[column] = value
+                else:
+                    user_dict[column] = None           
+            
+        else:
+            logger.info(f"➕ Создание нового пользователя: {telegram_id}")
+            # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем first_name в запрос ---
+            insert_query_text = f"""
+                DECLARE $user_id AS Utf8;
+                DECLARE $username AS Utf8;
+                DECLARE $first_name AS Utf8;
+                UPSERT INTO Users (telegram_id, username, first_name, role, tasks_count, notifications_enabled, state, state_data)
+                VALUES ($user_id, $username, $first_name, "Кладовщик", 0, true, "main", '{{}}');
+            """
+            prepared_insert = session.prepare(insert_query_text)
+            session.transaction(ydb.SerializableReadWrite()).execute(
+                prepared_insert, 
+                {
+                    '$user_id': str(telegram_id),
+                    '$username': username or f"user{telegram_id}",
+                    '$first_name': first_name
+                },
+                commit_tx=True
+            )
+            return {'telegram_id': telegram_id, 'username': username, 'role': "Кладовщик", 'first_name': first_name}
     try:
         return pool.retry_operation_sync(execute)
     except Exception as e:
-        print(f"Ошибка при работе с пользователем: {e}")
+        logger.error(f"❌ Ошибка в get_or_create_user для {telegram_id}: {e}")
         return None
 
 
-async def get_all_users():
+def get_all_users():
     """Получить всех пользователей."""
     def execute(session):
         try:
@@ -164,7 +198,7 @@ async def get_all_users():
         return []
 
 
-async def get_my_tasks(user_id):
+def get_my_tasks(user_id):
     """Получить задачи пользователя."""
     def execute(session):
         try:
@@ -201,7 +235,7 @@ async def get_my_tasks(user_id):
         return []
 
 
-async def get_schedule_by_type(schedule_type):
+def get_schedule_by_type(schedule_type):
     """Получить расписание по типу."""
     def execute(session):
         try:
@@ -306,14 +340,8 @@ async def get_schedule_by_type(schedule_type):
         print(f"Ошибка получения расписания: {e}")
         return []
     
-    try:
-        return pool.retry_operation_sync(execute)
-    except Exception as e:
-        print(f"Ошибка получения расписания: {e}")
-        return []
-
-
-async def get_all_schedule_items():
+ 
+def get_all_schedule_items():
     """Получить все записи расписания для админа."""
     def execute(session):
         try:
@@ -354,14 +382,8 @@ async def get_all_schedule_items():
         print(f"Ошибка получения всего расписания: {e}")
         return []
     
-    try:
-        return pool.retry_operation_sync(execute)
-    except Exception as e:
-        print(f"Ошибка получения всего расписания: {e}")
-        return []
-
-
-async def create_schedule_task(user_id, task_type, date, time_slot, shelves=None):
+ 
+def create_schedule_task(user_id, task_type, date, time_slot, shelves=None):
     """Создать задачу в расписании."""
     def execute(session):
         try:
@@ -435,7 +457,7 @@ async def create_schedule_task(user_id, task_type, date, time_slot, shelves=None
         return False, str(e)
 
 
-async def change_user_role(username, new_role):
+def change_user_role(username, new_role):
     """Изменить роль пользователя."""
     def execute(session):
         try:
@@ -475,7 +497,7 @@ async def change_user_role(username, new_role):
         return None, f"❌ Ошибка выполнения команды: {str(e)}"
 
 
-async def delete_user(username):
+def delete_user(username):
     """Удалить пользователя."""
     def execute(session):
         try:
@@ -513,7 +535,7 @@ async def delete_user(username):
         return False, f"❌ Ошибка выполнения удаления: {str(e)}"
 
 
-async def get_system_stats():
+def get_system_stats():
     """Получить статистику системы."""
     def execute(session):
         try:
@@ -548,7 +570,7 @@ async def get_system_stats():
         return None
 
 
-async def get_pending_tasks(user_id=None):
+def get_pending_tasks(user_id=None):
     """Получить ожидающие задачи (все или конкретного пользователя)."""
     def execute(session):
         try:
@@ -596,7 +618,7 @@ async def get_pending_tasks(user_id=None):
         return []
 
 
-async def get_completed_tasks(user_id=None, limit=20):
+def get_completed_tasks(user_id=None, limit=20):
     """Получить выполненные задачи."""
     def execute(session):
         try:
@@ -647,7 +669,7 @@ async def get_completed_tasks(user_id=None, limit=20):
         return []
 
 
-async def create_task(task_type, assigned_to, description, when_time, created_by, shelves=None):
+def create_task(task_type, assigned_to, description, when_time, created_by, shelves=None):
     """Создать новое задание."""
     def execute(session):
         try:
@@ -694,7 +716,7 @@ async def create_task(task_type, assigned_to, description, when_time, created_by
         return None
 
 
-async def get_all_tasks_stats():
+def get_all_tasks_stats():
     """Получить общую статистику по заданиям."""
     def execute(session):
         try:
@@ -736,7 +758,7 @@ async def get_all_tasks_stats():
         return {}
 
 
-async def get_users_for_task_assignment():
+def get_users_for_task_assignment():
     """Получить список пользователей для назначения заданий."""
     def execute(session):
         try:
@@ -769,7 +791,7 @@ async def get_users_for_task_assignment():
         return []
 
 
-async def update_task_status(task_id, new_status, rating=None, time_spent=None):
+def update_task_status(task_id, new_status, rating=None, time_spent=None):
     """Обновить статус задания."""
     def execute(session):
         try:
@@ -805,7 +827,7 @@ async def update_task_status(task_id, new_status, rating=None, time_spent=None):
         return False
 
 
-async def get_task_by_id(task_id):
+def get_task_by_id(task_id):
     """Получить задание по ID."""
     def execute(session):
         try:
@@ -844,7 +866,7 @@ async def get_task_by_id(task_id):
         return None
 
 
-async def get_schedule_by_type_admin(schedule_type):
+def get_schedule_by_type_admin(schedule_type):
     """Получить расписание по типу для админа с подробностями."""
     def execute(session):
         try:
@@ -884,14 +906,8 @@ async def get_schedule_by_type_admin(schedule_type):
         print(f"Ошибка получения расписания админ: {e}")
         return []
     
-    try:
-        return pool.retry_operation_sync(execute)
-    except Exception as e:
-        print(f"Ошибка получения расписания админ: {e}")
-        return []
-
-
-async def get_schedule_stats_admin():
+ 
+def get_schedule_stats_admin():
     """Получить детальную статистику расписания для админа."""
     def execute(session):
         try:
@@ -959,7 +975,7 @@ async def get_schedule_stats_admin():
 
 
 # Заглушки для функций редактирования расписания  
-async def delete_schedule_item(schedule_id, admin_id):
+def delete_schedule_item(schedule_id, admin_id):
     """Удалить запись из расписания."""
     def execute(session):
         try:
@@ -1049,13 +1065,13 @@ async def delete_schedule_item(schedule_id, admin_id):
         return False, f"Ошибка выполнения: {str(e)}"
 
 
-async def edit_schedule_item(schedule_id, new_date=None, new_start_time=None, new_end_time=None, admin_id=None):
+def edit_schedule_item(schedule_id, new_date=None, new_start_time=None, new_end_time=None, admin_id=None):
     """Редактировать запись расписания."""
     return False, "❌ Функция в разработке"
 
 
 
-async def get_notification_settings(user_id):
+def get_notification_settings(user_id):
     """Получить настройки уведомлений пользователя."""
     def execute(session):
         try:
@@ -1106,7 +1122,7 @@ async def get_notification_settings(user_id):
         return None
 
 
-async def get_user_notifications(user_id, limit=20):
+def get_user_notifications(user_id, limit=20):
     """Получить уведомления пользователя."""
     def execute(session):
         try:
@@ -1144,7 +1160,7 @@ async def get_user_notifications(user_id, limit=20):
         return []
 
 
-async def update_notification_settings(user_id, settings):
+def update_notification_settings(user_id, settings):
     """Обновить настройки уведомлений пользователя."""
     def execute(session):
         try:
@@ -1175,7 +1191,7 @@ async def update_notification_settings(user_id, settings):
         return False
 
 
-async def create_notification(user_id, title, message, notification_type="general"):
+def create_notification(user_id, title, message, notification_type="general"):
     """Создать уведомление для пользователя."""
     def execute(session):
         try:
@@ -1212,7 +1228,7 @@ async def create_notification(user_id, title, message, notification_type="genera
 
 
 
-async def get_quality_report():
+def get_quality_report():
     """Получить отчет по качеству работы."""
     def execute(session):
         try:
@@ -1256,7 +1272,7 @@ async def get_quality_report():
         return []
 
 
-async def get_time_report():
+def get_time_report():
     """Получить отчет по времени выполнения."""
     def execute(session):
         try:
@@ -1300,7 +1316,7 @@ async def get_time_report():
         return []
 
 
-async def get_tasks_report():
+def get_tasks_report():
     """Получить отчет по типам задач."""
     def execute(session):
         try:
@@ -1357,7 +1373,7 @@ async def get_tasks_report():
         return {}
 
 
-async def get_general_report():
+def get_general_report():
     """Получить общую статистику."""
     def execute(session):
         try:
@@ -1450,7 +1466,7 @@ async def get_general_report():
         return {}
 
 
-async def get_user_performance_report(user_id=None):
+def get_user_performance_report(user_id=None):
     """Получить отчет по производительности пользователя."""
     def execute(session):
         try:
@@ -1512,7 +1528,7 @@ async def get_user_performance_report(user_id=None):
         return []
 
 
-async def get_schedule_efficiency_report():
+def get_schedule_efficiency_report():
     """Получить отчет по эффективности расписания."""
     def execute(session):
         try:
@@ -1562,8 +1578,7 @@ async def get_schedule_efficiency_report():
         print(f"Ошибка получения отчета по эффективности: {e}")
         return []
 
-
-async def cleanup_canceled_tasks():
+def cleanup_canceled_tasks():
     """Физически удалить отмененные задачи (для очистки базы)."""
     def execute(session):
         try:
@@ -1604,48 +1619,7 @@ async def cleanup_canceled_tasks():
 
 
 
-async def cleanup_canceled_tasks():
-    """Физически удалить отмененные задачи (для очистки базы)."""
-    def execute(session):
-        try:
-            # Подсчитываем отмененные задачи
-            count_query = """
-                SELECT COUNT(*) as count
-                FROM Tasks 
-                WHERE status = "Отменено"
-            """
-            
-            count_result = session.transaction().execute(count_query, commit_tx=True)
-            canceled_count = count_result[0].rows[0][0] if count_result[0].rows else 0
-            
-            if canceled_count > 0:
-                # Удаляем отмененные задачи
-                delete_query = """
-                    DELETE FROM Tasks 
-                    WHERE status = "Отменено"
-                """
-                
-                session.transaction().execute(delete_query, commit_tx=True)
-                print(f"🗑️ Удалено {canceled_count} отмененных задач")
-                
-                return canceled_count
-            else:
-                print("✅ Нет отмененных задач для удаления")
-                return 0
-            
-        except Exception as e:
-            print(f"Ошибка очистки отмененных задач: {e}")
-            return 0
-    
-    try:
-        return pool.retry_operation_sync(execute)
-    except Exception as e:
-        print(f"Ошибка очистки отмененных задач: {e}")
-        return 0
-
-
-
-async def delete_all_canceled_tasks():
+def delete_all_canceled_tasks():
     """ФИЗИЧЕСКИ удалить все существующие отмененные задачи."""
     def execute(session):
         try:
@@ -1695,3 +1669,65 @@ def cleanup():
         print("🧹 Ресурсы YDB очищены")
     except:
         pass
+
+def set_user_state(user_id: int, state: str, data: dict = None):
+    """Сохраняет состояние пользователя (шаг и данные) в YDB."""
+    if not pool: return
+
+    def execute(session):
+        state_data_json = json.dumps(data) if data else "{}"
+        
+        query_text = f"""
+            PRAGMA TablePathPrefix("{YDB_DATABASE}");
+            DECLARE $user_id AS Utf8;
+            DECLARE $state AS Utf8;
+            DECLARE $state_data AS Json;
+            UPSERT INTO Users (telegram_id, state, state_data)
+            VALUES ($user_id, $state, $state_data);
+        """
+        
+        prepared_query = session.prepare(query_text)
+        session.transaction(ydb.SerializableReadWrite()).execute(
+            prepared_query,
+            {
+                '$user_id': str(user_id), # ИСПРАВЛЕНИЕ: Передаем user_id как строку
+                '$state': state,
+                '$state_data': state_data_json
+            },
+            commit_tx=True
+        )
+    try:
+        pool.retry_operation_sync(execute)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения состояния для {user_id}: {e}")
+
+def get_user_state(user_id: int):
+    """Получает состояние пользователя (шаг и данные) из YDB."""
+    if not pool: return "main", {}
+
+    def execute(session):
+        query_text = f"""
+            PRAGMA TablePathPrefix("{YDB_DATABASE}");
+            DECLARE $user_id AS Utf8;
+            SELECT state, state_data FROM Users WHERE telegram_id = $user_id;
+        """
+        
+        prepared_query = session.prepare(query_text)
+        result = session.transaction(ydb.SerializableReadWrite()).execute(
+            prepared_query, 
+            {'$user_id': str(user_id)}, # ИСПРАВЛЕНИЕ: Передаем user_id как строку
+            commit_tx=True
+        )
+
+        if result and result[0].rows:
+            row = result[0].rows[0]
+            state = row.state.decode('utf-8') if row.state else "main"
+            data = json.loads(row.state_data) if row.state_data else {}
+            return state, data
+        return "main", {}
+
+    try:
+        return pool.retry_operation_sync(execute)
+    except Exception as e:
+        logger.error(f"Ошибка получения состояния для {user_id}: {e}")
+        return "main", {}

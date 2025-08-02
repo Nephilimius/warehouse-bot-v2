@@ -8,7 +8,7 @@ handlers/notification_handlers.py
 
 import logging
 from .utils import TelegramAPI
-from .database_api import DatabaseAPI
+from .database_api import db
 from .keyboards import get_notifications_menu, get_back_button
 from .main_handlers import set_user_state, get_user_states
 
@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 def handle_notifications_menu_text(user_id, api: TelegramAPI):
     """Обработка меню уведомлений через текст"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     # Получаем настройки пользователя
-    settings = DatabaseAPI.get_notification_settings(user_id)
+    settings = db.get_notification_settings(user_id)
     
     # Получаем количество непрочитанных уведомлений
-    notifications = DatabaseAPI.get_user_notifications(user_id, 50)
+    notifications = db.get_user_notifications(user_id, 50)
     unread_count = len([n for n in notifications if not n.get('is_read', True)])
     
     message = f"""🔔 *Уведомления*
@@ -58,13 +58,13 @@ def handle_notifications_menu_text(user_id, api: TelegramAPI):
 def handle_notifications_menu_callback(user_id, message_id, api: TelegramAPI):
     """Обработка меню уведомлений через callback"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     # Получаем настройки пользователя
-    settings = DatabaseAPI.get_notification_settings(user_id)
+    settings = db.get_notification_settings(user_id)
     
     # Получаем количество непрочитанных уведомлений
-    notifications = DatabaseAPI.get_user_notifications(user_id, 50)
+    notifications = db.get_user_notifications(user_id, 50)
     unread_count = len([n for n in notifications if not n.get('is_read', True)])
     
     message = f"""🔔 *Уведомления*
@@ -99,7 +99,7 @@ def handle_notifications_menu_callback(user_id, message_id, api: TelegramAPI):
 def handle_my_notifications(user_id, message_id, api: TelegramAPI):
     """Обработка просмотра уведомлений пользователя"""
     
-    notifications = DatabaseAPI.get_user_notifications(user_id, 10)
+    notifications = db.get_user_notifications(user_id, 10)
     
     if notifications:
         message = "📱 *Ваши уведомления* (последние 10)\n\n"
@@ -132,7 +132,7 @@ def handle_my_notifications(user_id, message_id, api: TelegramAPI):
 def handle_notification_settings(user_id, message_id, api: TelegramAPI):
     """Обработка настроек уведомлений"""
     
-    settings = DatabaseAPI.get_notification_settings(user_id)
+    settings = db.get_notification_settings(user_id)
     
     if settings:
         keyboard = [
@@ -163,7 +163,7 @@ def handle_send_notification_all_text(user_id, text, api: TelegramAPI):
     """Обработка отправки уведомления всем пользователям"""
     
     if text.strip():
-        sent_count = DatabaseAPI.send_notification_to_all_users("📢 Общее уведомление", text.strip())
+        sent_count = db.send_notification_to_all_users("📢 Общее уведомление", text.strip())
         set_user_state(user_id, 'main')
         
         from .keyboards import get_reply_keyboard
@@ -171,7 +171,7 @@ def handle_send_notification_all_text(user_id, text, api: TelegramAPI):
         return api.send_message(
             user_id,
             f"✅ *Уведомление отправлено!*\n\n📊 Получателей: {sent_count}\n💬 Сообщение: {text[:100]}{'...' if len(text) > 100 else ''}",
-            reply_markup=get_reply_keyboard(DatabaseAPI.is_admin(user_id)),
+            reply_markup=get_reply_keyboard(db.is_admin(user_id)),
             parse_mode='Markdown'
         )
     else:
@@ -184,7 +184,7 @@ def handle_send_notification_role_text(user_id, text, current_state, api: Telegr
     role = current_state.replace('admin_send_notification_role_', '')
     
     if text.strip():
-        sent_count = DatabaseAPI.send_notification_to_all_users(f"🎯 Уведомление для {role}", text.strip(), role)
+        sent_count = db.send_notification_to_all_users(f"🎯 Уведомление для {role}", text.strip(), role)
         set_user_state(user_id, 'main')
         
         from .utils import get_role_emoji
@@ -195,7 +195,7 @@ def handle_send_notification_role_text(user_id, text, current_state, api: Telegr
         return api.send_message(
             user_id,
             f"✅ *Уведомление отправлено!*\n\n🎯 Роль: {role_emoji} {role}\n📊 Получателей: {sent_count}\n💬 Сообщение: {text[:100]}{'...' if len(text) > 100 else ''}",
-            reply_markup=get_reply_keyboard(DatabaseAPI.is_admin(user_id)),
+            reply_markup=get_reply_keyboard(db.is_admin(user_id)),
             parse_mode='Markdown'
         )
     else:
@@ -215,7 +215,7 @@ def handle_notification_callback(user_id, message_id, callback_data, api: Telegr
         return handle_notification_settings(user_id, message_id, api)
     
     elif callback_data == 'send_notification_all':
-        if not DatabaseAPI.is_admin(user_id):
+        if not db.is_admin(user_id):
             return api.edit_message(user_id, message_id, "❌ У вас нет прав администратора")
         
         set_user_state(user_id, 'admin_send_notification_all')
@@ -226,7 +226,7 @@ def handle_notification_callback(user_id, message_id, callback_data, api: Telegr
         )
     
     elif callback_data == 'send_notification_role':
-        if not DatabaseAPI.is_admin(user_id):
+        if not db.is_admin(user_id):
             return api.edit_message(user_id, message_id, "❌ У вас нет прав администратора")
         
         keyboard = [
@@ -244,7 +244,7 @@ def handle_notification_callback(user_id, message_id, callback_data, api: Telegr
         )
     
     elif callback_data.startswith('send_to_role_'):
-        if not DatabaseAPI.is_admin(user_id):
+        if not db.is_admin(user_id):
             return api.edit_message(user_id, message_id, "❌ У вас нет прав администратора")
         
         role = callback_data.replace('send_to_role_', '')
@@ -261,7 +261,7 @@ def handle_notification_callback(user_id, message_id, callback_data, api: Telegr
     
     elif callback_data.startswith('toggle_'):
         setting_name = callback_data.replace('toggle_', '')
-        settings = DatabaseAPI.get_notification_settings(user_id)
+        settings = db.get_notification_settings(user_id)
         
         if settings:
             # Переключаем настройку
@@ -269,7 +269,7 @@ def handle_notification_callback(user_id, message_id, callback_data, api: Telegr
             settings[setting_name] = new_value
             
             # Сохраняем
-            success = DatabaseAPI.update_notification_settings(user_id, settings)
+            success = db.update_notification_settings(user_id, settings)
             
             if success:
                 # Обновляем меню настроек

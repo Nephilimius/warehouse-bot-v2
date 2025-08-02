@@ -1,0 +1,7 @@
+{
+  "TELEGRAM_BOT_TOKEN": "ВАШ_НОВЫЙ_ТОКЕН_ЗДЕСЬ",
+  "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+  "YDB_DATABASE": "/ru-central1/ВАШ_FOLDER_ID/ВАШ_DATABASE_ID",
+  "YDB_SERVICE_ACCOUNT_KEY": "СОДЕРЖИМОЕ_ydb_key.json_КАК_СТРОКА_JSON",
+  "ADMIN_USERS": "398232017,1014841100"
+}

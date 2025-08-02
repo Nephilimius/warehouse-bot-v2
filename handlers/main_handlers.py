@@ -7,8 +7,8 @@ handlers/main_handlers.py
 """
 
 import logging
+import database as db
 from .utils import TelegramAPI
-from .database_api import DatabaseAPI
 from .keyboards import get_main_menu_keyboard, get_reply_keyboard, get_back_button
 
 logger = logging.getLogger(__name__)
@@ -24,9 +24,9 @@ def handle_start_command(user_id, username, first_name, api: TelegramAPI):
     user_states[user_id] = 'main'
     
     # Получаем пользователя из базы
-    user = DatabaseAPI.get_or_create_user(user_id, username)
+    user = db.get_or_create_user(user_id, username)
     role = user.get('role', 'Кладовщик') if user else 'Кладовщик'
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     welcome_text = f"""🤖 *Добро пожаловать, {first_name}!*
 
@@ -47,7 +47,7 @@ def handle_cancel_command(user_id, api: TelegramAPI):
     """Обработка команды /cancel"""
     
     user_states[user_id] = 'main'
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     # Очищаем состояния
     if user_id in user_data and 'creating_schedule' in user_data[user_id]:
@@ -63,13 +63,11 @@ def handle_cancel_command(user_id, api: TelegramAPI):
 def handle_search_text(user_id, text, api: TelegramAPI):
     """Обработка поиска пользователя"""
     
-    user_states[user_id] = 'main'
-    
     # Убираем @ если есть
     username = text.replace("@", "")
     
     # Поиск пользователя (пока заглушка)
-    users = DatabaseAPI.get_all_users()
+    users = db.get_all_users()
     found_user = None
     
     for user in users:
@@ -83,6 +81,14 @@ def handle_search_text(user_id, text, api: TelegramAPI):
         role_emoji = get_role_emoji(found_user['role'])
         
         message = f"""🔍 *Результат поиска*
+        
+        logger.info(f"Поиск: ищу '{username}'")
+        for user in users:
+            logger.info(f"Проверяю: '{user.get('username', '')}' vs '{username}'")
+            if user.get('username', '').lower() == username.lower():
+                found_user = user
+                logger.info(f"Найден пользователь: {found_user}")
+                break
 
 👤 *@{found_user['username']}*
 {role_emoji} Роль: {found_user['role']}
@@ -92,7 +98,7 @@ def handle_search_text(user_id, text, api: TelegramAPI):
     else:
         message = f"🔍 *Результат поиска*\n\n❌ Пользователь `@{username}` не найден"
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     return api.send_message(
         user_id,
         message,
@@ -104,10 +110,10 @@ def handle_profile_text(user_id, api: TelegramAPI):
     """Обработка профиля через текст"""
     
     # Получаем данные пользователя из базы
-    user = DatabaseAPI.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id)
     
     if user:
-        is_admin = DatabaseAPI.is_admin(user_id)
+        is_admin = db.is_admin(user_id)
         admin_status = "\n👑 *Статус:* Администратор" if is_admin else ""
         
         message = f"""👤 *Ваш профиль*
@@ -135,7 +141,7 @@ def handle_profile_text(user_id, api: TelegramAPI):
 def handle_text_message(user_id, username, text, api: TelegramAPI):
     """Главный обработчик текстовых сообщений"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     # Команды
     if text == "/start":
@@ -214,41 +220,3 @@ def handle_text_message(user_id, username, text, api: TelegramAPI):
 /start - Главное меню
 /cancel - Отменить операцию"""
     )
-
-
-def get_user_states():
-    """Получить состояния пользователей"""
-    return user_states
-
-
-def get_user_data():
-    """Получить данные пользователей"""
-    return user_data
-
-
-def set_user_state(user_id, state):
-    """Установить состояние пользователя"""
-    user_states[user_id] = state
-
-
-def get_user_state(user_id):
-    """Получить состояние пользователя"""
-    return user_states.get(user_id, 'main')
-
-
-def set_user_data(user_id, key, value):
-    """Установить данные пользователя"""
-    if user_id not in user_data:
-        user_data[user_id] = {}
-    user_data[user_id][key] = value
-
-
-def get_user_data_value(user_id, key, default=None):
-    """Получить данные пользователя"""
-    return user_data.get(user_id, {}).get(key, default)
-
-
-def clear_user_data(user_id, key):
-    """Очистить данные пользователя"""
-    if user_id in user_data and key in user_data[user_id]:
-        del user_data[user_id][key]

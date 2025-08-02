@@ -8,7 +8,7 @@ handlers/admin_handlers.py
 
 import logging
 from .utils import TelegramAPI, get_role_emoji, get_task_type_emoji
-from .database_api import DatabaseAPI
+from .database_api import db
 from .keyboards import get_admin_menu, get_admin_schedule_menu
 from .main_handlers import set_user_state, get_user_data, set_user_data
 
@@ -42,7 +42,7 @@ def handle_admin_menu_callback(user_id, message_id, api: TelegramAPI):
 def handle_admin_users(user_id, message_id, api: TelegramAPI):
     """Обработка списка пользователей"""
     
-    users = DatabaseAPI.get_all_users()
+    users = db.get_all_users()
     
     if users:
         message = f"👥 *Список пользователей* ({len(users)})\n\n"
@@ -69,9 +69,9 @@ def handle_admin_users(user_id, message_id, api: TelegramAPI):
 def handle_admin_stats(user_id, message_id, api: TelegramAPI):
     """Обработка статистики системы"""
     
-    users = DatabaseAPI.get_all_users()
-    pending_tasks = DatabaseAPI.get_pending_tasks()
-    completed_tasks = DatabaseAPI.get_completed_tasks()
+    users = db.get_all_users()
+    pending_tasks = db.get_pending_tasks()
+    completed_tasks = db.get_completed_tasks()
     
     # Подсчитываем статистику по ролям
     role_stats = {}
@@ -120,7 +120,7 @@ def handle_admin_schedule_view_all(user_id, message_id, api: TelegramAPI):
     
     # Собираем все записи
     for stype in ['Обеды', 'Уборка', 'Пересчеты']:
-        items = DatabaseAPI.get_schedule_by_type(stype)
+        items = db.get_schedule_by_type(stype)
         if items:
             for item in items:
                 item['type'] = stype
@@ -200,7 +200,7 @@ def handle_admin_add_task_type(user_id, message_id, callback_data, api: Telegram
     set_user_state(user_id, 'admin_schedule_select_user')
     
     # Получаем список пользователей
-    users = DatabaseAPI.get_all_users()
+    users = db.get_all_users()
     if not users:
         return api.edit_message(user_id, message_id, "❌ Нет пользователей")
     
@@ -239,7 +239,7 @@ def handle_admin_select_user(user_id, message_id, callback_data, api: TelegramAP
     user_data[user_id]['creating_schedule']['assigned_to'] = selected_user_id
     
     # Найдем username
-    users = DatabaseAPI.get_all_users()
+    users = db.get_all_users()
     selected_user = next((u for u in users if u['telegram_id'] == selected_user_id), None)
     
     if selected_user:

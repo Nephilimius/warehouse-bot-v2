@@ -110,7 +110,7 @@ class TelegramAPI:
             return False
 
 
-class DatabaseAPI:
+class db:
     """Класс для работы с базой данных через threading"""
     
     @staticmethod

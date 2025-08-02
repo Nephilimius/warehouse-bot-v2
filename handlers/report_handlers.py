@@ -8,7 +8,7 @@ handlers/report_handlers.py
 
 import logging
 from .utils import TelegramAPI, get_task_type_emoji, get_role_emoji
-from .database_api import DatabaseAPI
+from .database_api import db
 from .keyboards import get_reports_menu
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def handle_reports_menu_callback(user_id, message_id, api: TelegramAPI):
 def handle_quality_report(user_id, message_id, api: TelegramAPI):
     """Обработка отчета по качеству работы"""
     
-    quality_data = DatabaseAPI.get_quality_report()
+    quality_data = db.get_quality_report()
     
     if quality_data:
         message = "⭐ *Отчет по качеству работы*\n\n"
@@ -82,7 +82,7 @@ def handle_quality_report(user_id, message_id, api: TelegramAPI):
 def handle_time_report(user_id, message_id, api: TelegramAPI):
     """Обработка отчета по времени выполнения"""
     
-    time_data = DatabaseAPI.get_time_report()
+    time_data = db.get_time_report()
     
     if time_data:
         message = "⏱️ *Отчет по времени выполнения*\n\n"
@@ -120,7 +120,7 @@ def handle_time_report(user_id, message_id, api: TelegramAPI):
 def handle_tasks_report(user_id, message_id, api: TelegramAPI):
     """Обработка отчета по задачам"""
     
-    tasks_data = DatabaseAPI.get_tasks_report()
+    tasks_data = db.get_tasks_report()
     
     if tasks_data:
         message = "📋 *Отчет по типам задач*\n\n"
@@ -170,7 +170,7 @@ def handle_tasks_report(user_id, message_id, api: TelegramAPI):
 def handle_general_report(user_id, message_id, api: TelegramAPI):
     """Обработка общей статистики"""
     
-    general_data = DatabaseAPI.get_general_report()
+    general_data = db.get_general_report()
     
     if general_data:
         message = "📈 *Общая статистика системы*\n\n"

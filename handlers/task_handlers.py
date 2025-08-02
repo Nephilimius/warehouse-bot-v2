@@ -8,7 +8,7 @@ handlers/task_handlers.py
 
 import logging
 from .utils import TelegramAPI, get_task_type_emoji
-from .database_api import DatabaseAPI
+from .database_api import db
 from .keyboards import get_tasks_menu, get_back_button
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def handle_tasks_menu_text(user_id, api: TelegramAPI):
     """Обработка меню заданий через текст"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     return api.send_message(
         user_id,
@@ -32,7 +32,7 @@ def handle_tasks_menu_text(user_id, api: TelegramAPI):
 def handle_tasks_menu_callback(user_id, message_id, api: TelegramAPI):
     """Обработка меню заданий через callback"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     return api.edit_message(
         user_id,
@@ -45,7 +45,7 @@ def handle_tasks_menu_callback(user_id, message_id, api: TelegramAPI):
 def handle_my_tasks(user_id, message_id, api: TelegramAPI):
     """Обработка просмотра моих задач"""
     
-    tasks = DatabaseAPI.get_my_tasks(user_id)
+    tasks = db.get_my_tasks(user_id)
     
     if tasks:
         message = "📝 *Ваши задания* (последние 10)\n\n"
@@ -84,13 +84,13 @@ def handle_my_tasks(user_id, message_id, api: TelegramAPI):
 def handle_pending_tasks(user_id, message_id, api: TelegramAPI):
     """Обработка просмотра ожидающих задач"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     if is_admin:
-        tasks = DatabaseAPI.get_pending_tasks()  # Все ожидающие
+        tasks = db.get_pending_tasks()  # Все ожидающие
         title = "⏳ *Все ожидающие задания*"
     else:
-        tasks = DatabaseAPI.get_pending_tasks(user_id)  # Только свои
+        tasks = db.get_pending_tasks(user_id)  # Только свои
         title = "⏳ *Ваши ожидающие задания*"
     
     if tasks:
@@ -128,13 +128,13 @@ def handle_pending_tasks(user_id, message_id, api: TelegramAPI):
 def handle_completed_tasks(user_id, message_id, api: TelegramAPI):
     """Обработка просмотра выполненных задач"""
     
-    is_admin = DatabaseAPI.is_admin(user_id)
+    is_admin = db.is_admin(user_id)
     
     if is_admin:
-        tasks = DatabaseAPI.get_completed_tasks()  # Все выполненные
+        tasks = db.get_completed_tasks()  # Все выполненные
         title = "✅ *Все выполненные задания*"
     else:
-        tasks = DatabaseAPI.get_completed_tasks(user_id)  # Только свои
+        tasks = db.get_completed_tasks(user_id)  # Только свои
         title = "✅ *Ваши выполненные задания*"
     
     if tasks:
@@ -179,15 +179,15 @@ def handle_completed_tasks(user_id, message_id, api: TelegramAPI):
 def handle_all_stats(user_id, message_id, api: TelegramAPI):
     """Обработка общей статистики заданий (только для админов)"""
     
-    if not DatabaseAPI.is_admin(user_id):
+    if not db.is_admin(user_id):
         return api.edit_message(
             user_id,
             message_id,
             "❌ У вас нет прав доступа"
         )
     
-    all_pending = DatabaseAPI.get_pending_tasks()
-    all_completed = DatabaseAPI.get_completed_tasks()
+    all_pending = db.get_pending_tasks()
+    all_completed = db.get_completed_tasks()
     
     # Группируем по типам
     pending_by_type = {}

@@ -85,3 +85,4 @@ backup_*/
 ngrok
 ngrok.exe
 webhook_stabilizer.py
+.aider*

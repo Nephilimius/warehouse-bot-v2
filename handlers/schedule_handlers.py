@@ -10,7 +10,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from .utils import TelegramAPI, get_task_type_emoji
-from .database_api import DatabaseAPI
+from .database_api import db
 from .keyboards import get_schedule_menu, get_back_button
 from .main_handlers import (
     get_user_states, get_user_data, set_user_state, 
@@ -26,7 +26,7 @@ def handle_schedule_menu_text(user_id, api: TelegramAPI):
     # Получаем статистику
     stats = {}
     for schedule_type in ['Обеды', 'Уборка', 'Пересчеты']:
-        items = DatabaseAPI.get_schedule_by_type(schedule_type)
+        items = db.get_schedule_by_type(schedule_type)
         stats[schedule_type] = len(items) if items else 0
     
     total = sum(stats.values())
@@ -59,7 +59,7 @@ def handle_schedule_menu_callback(user_id, message_id, api: TelegramAPI):
     # Получаем статистику
     stats = {}
     for schedule_type in ['Обеды', 'Уборка', 'Пересчеты']:
-        items = DatabaseAPI.get_schedule_by_type(schedule_type)
+        items = db.get_schedule_by_type(schedule_type)
         stats[schedule_type] = len(items) if items else 0
     
     total = sum(stats.values())
@@ -100,7 +100,7 @@ def handle_schedule_type(user_id, message_id, callback_data, api: TelegramAPI):
         )
     
     # Получаем реальные данные
-    schedule_items = DatabaseAPI.get_schedule_by_type(schedule_type)
+    schedule_items = db.get_schedule_by_type(schedule_type)
     
     # Формируем сообщение
     type_emoji = get_task_type_emoji(schedule_type)
@@ -215,7 +215,7 @@ def handle_schedule_date_input(user_id, text, api: TelegramAPI):
     # Проверяем что у нас есть данные создания расписания
     if (user_id not in user_data or 
         'creating_schedule' not in user_data[user_id]):
-        is_admin = DatabaseAPI.is_admin(user_id)
+        is_admin = db.is_admin(user_id)
         return api.send_message(
             user_id,
             "❌ Данные потеряны. Начните создание записи заново.",
@@ -378,7 +378,7 @@ def create_schedule_from_data(user_id, api: TelegramAPI):
     try:
         logger.info(f"📋 Создаем запись в YDB: {task_type} для {assigned_to} на {date}")
         
-        success, result = DatabaseAPI.create_schedule_task(
+        success, result = db.create_schedule_task(
             user_id=assigned_to,
             task_type=task_type,
             date=date,
